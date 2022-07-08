@@ -26,7 +26,7 @@ contract MasterchefExternalRewards is Ownable {
     uint256 rewardDebt; // A base for future reward claims. Works as a threshold, updated on each reward claim
     //
     // At any point in time, pending user reward for a given pool is:
-    // pending reward = (user.amount * pool.accRewardPerShare) - user.rewardFloor
+    // pending reward = (user.amount * pool.accRewardPerShare) - user.rewardDebt
     //
     // Whenever a user deposits or withdraws a pool token:
     //   1. The pool's `accRewardPerShare` (and `lastUpdate`) gets updated.
@@ -82,7 +82,7 @@ contract MasterchefExternalRewards is Ownable {
   mapping(address => bool) private poolToken;
 
   modifier onlyAuthorized() {
-    require(msg.sender == rewardDistributor, 'MasterChefBnb: Caller not authorized');
+    require(msg.sender == rewardDistributor, 'MasterchefExternalRewards: Caller not authorized');
     _;
   }
 
@@ -133,7 +133,7 @@ contract MasterchefExternalRewards is Ownable {
 
     require(
       poolToken[address(_token)] == false,
-      'MasterChefBnb: Stake token has already been added'
+      'MasterchefExternalRewards: Stake token has already been added'
     );
 
     totalAllocPoint = totalAllocPoint + _allocPoint;
@@ -171,12 +171,14 @@ contract MasterchefExternalRewards is Ownable {
     PoolInfo storage pool = poolInfo[_pid];
     UserInfo storage user = userInfo[_pid][msg.sender];
 
+    // Updates the accRewardPerShare and accUndistributedReward if applicable.
     _updatePool(_pid);
 
     uint256 pending;
 
     if (pool.totalStaked == 0) {
       // Special case: no one was staking, the pool was accumulating rewards.
+      // All accumulated rewards are sent to the user at once.
       pending = pool.accUndistributedReward;
       pool.accUndistributedReward = 0;
     }
@@ -194,7 +196,10 @@ contract MasterchefExternalRewards is Ownable {
   // Withdraw tokens from pool. Claims rewards implicitly (only claims rewards when called with _amount = 0)
   function withdraw(uint256 _pid, uint256 _amount) public {
     UserInfo storage user = userInfo[_pid][msg.sender];
-    require(user.amount >= _amount, 'MasterChefBnb: Withdraw amount is greater than user stake.');
+    require(
+      user.amount >= _amount,
+      'MasterchefExternalRewards: Withdraw amount is greater than user stake.'
+    );
 
     _updatePool(_pid);
     _claimFromPool(_pid, _getUserPendingReward(_pid));
@@ -222,7 +227,7 @@ contract MasterchefExternalRewards is Ownable {
 
   /// Adds and evenly distributes any rewards that were sent to the contract since last reward update.
   function updateRewards(uint256 amount) external onlyAuthorized {
-    require(amount != 0, 'MasterChefBnb: Reward amount must be greater than zero');
+    require(amount != 0, 'MasterchefExternalRewards: Reward amount must be greater than zero');
 
     IERC20(rewardToken).safeTransferFrom(msg.sender, address(this), amount);
     rewardTokenBalance += amount;
@@ -231,11 +236,7 @@ contract MasterchefExternalRewards is Ownable {
       return;
     }
 
-    //@TODO This update causes a subtraction overflow if periodFinish is < block.timestamp
-    //massUpdatePools();
-
     // note: if increasing rewards after the last period has ended, just divide the amount by period length
-
     if (block.timestamp >= periodFinish) {
       rewardRate = (amount * precision) / rewardsDuration;
     } else {
@@ -247,6 +248,7 @@ contract MasterchefExternalRewards is Ownable {
     totalRewards += amount;
     periodFinish = block.timestamp + rewardsDuration;
 
+    //@TODO Need to check if this can be the last function to be called.
     massUpdatePools();
   }
 
@@ -276,6 +278,7 @@ contract MasterchefExternalRewards is Ownable {
     pool.lastUpdateTime = block.timestamp;
   }
 
+  // @notice Returns the total rewards accumulated on a pool since last update.
   function _getPoolRewardsSinceLastUpdate(uint256 _pid)
     internal
     view
@@ -286,19 +289,18 @@ contract MasterchefExternalRewards is Ownable {
     //@TODO If reward is not updated for longer than rewardsDuration periodFinish will be lower than block.timestamp
     uint256 lastTimeRewardApplicable = Math.min(block.timestamp, periodFinish);
 
-    console.log("lastTimeRewardApplicable", lastTimeRewardApplicable);
-    console.log("pool.lastUpdateTime", pool.lastUpdateTime);
-    //@TODO If rewards have not been updated for a while this throws a math overflow error.
-    uint256 secondsElapsedSinceLastReward;
-8
-    if(pool.lastUpdateTime > lastTimeRewardApplicable) {
-      //@TODO Not sure what to do here. Need to go through every scenario.
-      secondsElapsedSinceLastReward =  0;
-    } else {
-      secondsElapsedSinceLastReward = lastTimeRewardApplicable - pool.lastUpdateTime;
+    console.log('lastTimeRewardApplicable', lastTimeRewardApplicable);
+    console.log('pool.lastUpdateTime', pool.lastUpdateTime);
+
+    // updateRewards has not been called since periodFinish
+    if (pool.lastUpdateTime > lastTimeRewardApplicable) {
+      lastTimeRewardApplicable = pool.lastUpdateTime;
     }
 
-    return (secondsElapsedSinceLastReward * rewardRate * pool.allocPoint) / totalAllocPoint / precision;
+    uint256 secondsElapsedSinceLastReward = lastTimeRewardApplicable - pool.lastUpdateTime;
+
+    return
+      (secondsElapsedSinceLastReward * rewardRate * pool.allocPoint) / totalAllocPoint / precision;
   }
 
   function _safeRewardTokenTransfer(address _to, uint256 _amount)
@@ -311,8 +313,14 @@ contract MasterchefExternalRewards is Ownable {
   }
 
   function withdrawStuckTokens(address _token, uint256 _amount) public onlyOwner {
-    require(_token != address(rewardToken), 'MasterChefBnb: Cannot withdraw reward tokens');
-    require(poolToken[address(_token)] == false, 'MasterChefBnb: Cannot withdraw stake tokens');
+    require(
+      _token != address(rewardToken),
+      'MasterchefExternalRewards: Cannot withdraw reward tokens'
+    );
+    require(
+      poolToken[address(_token)] == false,
+      'MasterchefExternalRewards: Cannot withdraw stake tokens'
+    );
     IERC20(_token).safeTransfer(msg.sender, _amount);
   }
 
