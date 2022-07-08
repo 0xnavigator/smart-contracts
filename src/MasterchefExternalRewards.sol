@@ -131,6 +131,11 @@ contract MasterchefExternalRewards is Ownable {
       'MasterchefExternalRewards: A pool already exists for this token'
     );
 
+    require(
+      _token != rewardToken,
+      'MasterchefExternalRewards: Does not support staking reward token'
+    );
+
     totalAllocPoint = totalAllocPoint + _allocPoint;
 
     poolInfo.push(
