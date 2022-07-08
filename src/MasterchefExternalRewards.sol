@@ -7,6 +7,8 @@ import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import '@openzeppelin/contracts/utils/math/Math.sol';
 import '@openzeppelin/contracts/access/Ownable.sol';
 
+import 'forge-std/console.sol';
+
 /// @title Masterchef External Rewards
 /// @notice Modified masterchef contract (https://etherscan.io/address/0xc2edad668740f1aa35e4d8f227fb8e17dca888cd#code)
 /// to support external rewards
@@ -229,7 +231,8 @@ contract MasterchefExternalRewards is Ownable {
       return;
     }
 
-    massUpdatePools();
+    //@TODO This update causes a subtraction overflow if periodFinish is < block.timestamp
+    //massUpdatePools();
 
     // note: if increasing rewards after the last period has ended, just divide the amount by period length
 
@@ -243,6 +246,8 @@ contract MasterchefExternalRewards is Ownable {
 
     totalRewards += amount;
     periodFinish = block.timestamp + rewardsDuration;
+
+    massUpdatePools();
   }
 
   /// @notice Updates rewards for all pools by adding pending rewards.
@@ -277,12 +282,23 @@ contract MasterchefExternalRewards is Ownable {
     returns (uint256 _poolRewards)
   {
     PoolInfo storage pool = poolInfo[_pid];
+
+    //@TODO If reward is not updated for longer than rewardsDuration periodFinish will be lower than block.timestamp
     uint256 lastTimeRewardApplicable = Math.min(block.timestamp, periodFinish);
 
-    //TODO If rewards have not been updated for a while this throws a math overflow error.
-    uint256 numSeconds = Math.max(lastTimeRewardApplicable - pool.lastUpdateTime, 0);
+    console.log("lastTimeRewardApplicable", lastTimeRewardApplicable);
+    console.log("pool.lastUpdateTime", pool.lastUpdateTime);
+    //@TODO If rewards have not been updated for a while this throws a math overflow error.
+    uint256 secondsElapsedSinceLastReward;
+8
+    if(pool.lastUpdateTime > lastTimeRewardApplicable) {
+      //@TODO Not sure what to do here. Need to go through every scenario.
+      secondsElapsedSinceLastReward =  0;
+    } else {
+      secondsElapsedSinceLastReward = lastTimeRewardApplicable - pool.lastUpdateTime;
+    }
 
-    return (numSeconds * rewardRate * pool.allocPoint) / totalAllocPoint / precision;
+    return (secondsElapsedSinceLastReward * rewardRate * pool.allocPoint) / totalAllocPoint / precision;
   }
 
   function _safeRewardTokenTransfer(address _to, uint256 _amount)
