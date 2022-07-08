@@ -199,7 +199,7 @@ contract MasterchefExternalRewards is Ownable {
   function withdraw(uint256 _pid, uint256 _amount) public {
     UserInfo storage user = userInfo[_pid][msg.sender];
     require(
-      user.amount >= _amount,
+      _amount <= user.amount,
       'MasterchefExternalRewards: Withdraw amount is greater than user stake.'
     );
 
@@ -283,9 +283,6 @@ contract MasterchefExternalRewards is Ownable {
 
     //If reward is not updated for longer than rewardsDuration periodFinish will be < than block.timestamp
     uint256 lastTimeRewardApplicable = Math.min(block.timestamp, periodFinish);
-
-    console.log('lastTimeRewardApplicable', lastTimeRewardApplicable);
-    console.log('pool.lastUpdateTime', pool.lastUpdateTime);
 
     // If updateRewards has not been called since periodFinish
     if (pool.lastUpdateTime > lastTimeRewardApplicable) {

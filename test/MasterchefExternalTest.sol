@@ -18,6 +18,7 @@ contract MasterchefTest is Test {
   uint256 distributionAmount = initialSupply / 2;
   uint256 rewardDuration = 7 days;
   uint256 precision = 1e18;
+  uint256 errorMargin = 0.0001e18;
 
   function setUp() public {
     stakeToken = new SimpleToken('stakeToken', 'stkn', initialSupply);
@@ -45,16 +46,32 @@ contract MasterchefTest is Test {
     deposit(alice, distributionAmount, 0);
     vm.warp(block.timestamp + period);
     uint256 rewardRate = (rewardAmount * precision) / rewardDuration;
-    assertEq(mc.pendingReward(0, alice), (rewardRate * period) / precision);
-    // console.log(block.timestamp);
-    // uint256 expectedReward = mc.pendingReward(0, address(this));
-    // uint256 rewardInBalance = rewardToken.balanceOf(address(this));
-    // console.log('Pending Rewards: ', expectedReward / 1e18);
-    // mc.withdraw(0, 0);
-    // assertEq(rewardToken.balanceOf(address(this)), expectedReward + rewardInBalance);
-    // mc.updateRewards(rewardAmount);
-    // vm.warp(block.timestamp + 5 days);
-    // console.log('Pending Rewards: ', mc.pendingReward(0, address(this)) / 1e18);
+    assertApproxEqRel(mc.pendingReward(0, alice), (rewardRate * period) / precision, errorMargin);
+  }
+
+  function testRewardDepleted() public {
+    setupMasterchef();
+    deposit(alice, distributionAmount, 0);
+    vm.warp(block.timestamp + rewardDuration);
+    vm.startPrank(alice);
+    mc.withdraw(0, 0);
+    assertApproxEqRel(rewardToken.balanceOf(alice), rewardAmount, errorMargin);
+    vm.warp(block.timestamp + rewardDuration * 2);
+    mc.withdraw(0, distributionAmount);
+    assertEq(stakeToken.balanceOf(alice), distributionAmount);
+    vm.stopPrank();
+  }
+
+  function testAddingRewardsAfterDepletion() public {
+    setupMasterchef();
+    deposit(alice, distributionAmount, 0);
+    vm.warp(block.timestamp + rewardDuration * 2);
+    vm.prank(alice);
+    mc.withdraw(0, 0);
+    assertApproxEqRel(rewardToken.balanceOf(alice), rewardAmount, errorMargin);
+    mc.updateRewards(rewardAmount);
+    vm.warp(block.timestamp + rewardDuration);
+    assertApproxEqRel(mc.pendingReward(0, alice), rewardAmount, errorMargin);
   }
 
   function deposit(
